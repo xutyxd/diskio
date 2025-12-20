@@ -1,0 +1,72 @@
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: diskio-cloudflared
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARED_TOKEN}
+    restart: unless-stopped
+    networks:
+      - diskio
+
+  watchtower:
+    container_name: diskio-watchtower
+    image: containrrr/watchtower:latest
+    restart: always
+    networks:
+      - diskio
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --cleanup --interval 3600
+
+  database:
+    image: mongo:8.2.2
+    container_name: diskio-mongo
+    restart: unless-stopped
+    networks:
+      - diskio
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+      - MONGO_INITDB_DATABASE=${MONGO_DB}
+    volumes:
+      - mongodb_data:/data/db
+    ports: 
+      - "27018:27017" # Uncomment only if you need to access DB from your host machine
+
+  # frontend:
+  #   image: xutyxd/diskio-web:latest
+  #   container_name: diskio-web
+  #   restart: unless-stopped
+  #   networks:
+  #     - diskio
+  #   ports:
+  #     - "80:80"
+
+  backend:
+    container_name: diskio-server
+    image: xutyxd/diskio:latest
+    restart: unless-stopped
+    networks:
+      - diskio
+    environment:
+      - MONGODB_URI=mongodb://${MONGO_USER}:${MONGO_PASSWORD}@diskio-mongo:27017/${MONGO_DB}?authSource=admin
+      - MONGODB_DATABASE=${MONGO_DB}
+      - DISKIO_SIZE=${DISKIO_SIZE}
+      - DISKIO_DEPTH=${DISKIO_DEPTH}
+      # Inside Docker, the app should ALWAYS point here:
+      - DISKIO_PATH=/app/data
+    volumes:
+      # Format: host_path:container_path:mode
+      - ${DISKIO_PATH}:/app/data:rw
+    depends_on:
+      - database
+    ports:
+      - "8080:8080"
+
+networks:
+  diskio:
+    driver: bridge
+
+volumes:
+  mongodb_data: # This persists data even if the container is deleted
